@@ -17,7 +17,9 @@ parser = argparse.ArgumentParser()
 
 ## Required parameters
 parser.add_argument(
-    "-- ", default=None, type=str, required=True, help="The input data_dir")
+    "--data_dir", default=None, type=str, required=True, help="The input data_dir")
+parser.add_argument(
+    "--data_name", default=None, type=str, required=True, help="The input data name")
 parser.add_argument(
     "--output_dir",
     default=None,
@@ -47,8 +49,8 @@ parser.add_argument(
     type=int,
     help="Total number of training epochs to perform.")
 args = parser.parse_args()
-# check gpu work well or use cpu
 
+# check gpu work well or use cpu
 device_name = tf.test.gpu_device_name()
 print(device_name)
 use_gpu = False
@@ -66,6 +68,7 @@ def dropcomma(sent):
         return ''
 
 
+#  whether or not use key_words in dataset(special for this toutiao dateset)
 def add_keywords(x):
     if args.is_add_key_words:
         return np.array([dropcomma(xi) for xi in x])
@@ -76,31 +79,31 @@ def add_keywords(x):
 # prepare data
 df = pd.read_csv(
     os.path.join(
-        os.path.expanduser("~"), "ml-project/muse/toutiao_cat_data.txt"),
+        args.data_dir, args.data_name),
     delimiter='_!_',
     header=None)
 print("Data load success")
 sentences = df[3].values
 key_words = df[4].values
 labels = df[1].values
-labels[labels < 105] -= 100
+#  handler label missing value and not start from 0
+labels[labels > 111] -= 102
 labels[labels > 105] -= 101
-print("Data number", sentences.shape)
-print("Tokenize start...")
+labels[labels > 99] -= 100
+print("Data Size:", sentences.shape)
 
-# Here we can test whether after add key_words to tokens, the system perfrom better by set 'is_add_key_words' param
+print("Tokenize start...")
 key_words_drop_comma = add_keywords(key_words)
 
 # We need to add special tokens at the beginning and end of each sentence for BERT to work properly
 sentences = [
-    "[CLS] " + sentence + keyword + " [SEP]" for sentence in sentences
-    for keyword in key_words_drop_comma if sentence is not None
-]
-print("sentence prepare ok")
-tokenizer = BertTokenizer.from_pretrained(
-    'bert-base-chinese', do_lower_case=True)
+    "[CLS] " + sentence + keyword + " [SEP]" for sentence, keyword in zip(sentences,key_words_drop_comma) 
+    if sentence is not None]
+
+tokenizer = BertTokenizer.from_pretrained('bert-base-chinese', do_lower_case=True)
 tokenized_texts = [tokenizer.tokenize(sent) for sent in sentences]
 print("Tokenize success")
+
 MAX_LEN = args.max_seq_length
 input_ids = pad_sequences(
     [tokenizer.convert_tokens_to_ids(txt) for txt in tokenized_texts],
@@ -117,8 +120,7 @@ for seq in input_ids:
     seq_mask = [float(i > 0) for i in seq]
     attention_masks.append(seq_mask)
 
-# Use train_test_split to split our data into train and validation sets for training
-
+# Use train_test_split to split our data into train and validation sets
 train_inputs, validation_inputs, train_labels, validation_labels = train_test_split(
     input_ids, labels, random_state=1, test_size=0.2)
 train_masks, validation_masks, _, _ = train_test_split(
@@ -134,7 +136,6 @@ validation_masks = torch.tensor(validation_masks)
 
 # Create an iterator of our data with torch DataLoader. This helps save on memory during training because, unlike a for loop,
 # with an iterator the entire dataset does not need to be loaded into memory
-
 train_data = TensorDataset(train_inputs, train_masks, train_labels)
 train_sampler = RandomSampler(train_data)
 train_dataloader = DataLoader(
@@ -146,8 +147,10 @@ validation_sampler = SequentialSampler(validation_data)
 validation_dataloader = DataLoader(
     validation_data, sampler=validation_sampler, batch_size=batch_size)
 print("Data prepare Finished")
+
+
 model = BertForSequenceClassification.from_pretrained(
-    "bert-base-chinese", num_labels=16)
+    "bert-base-chinese", num_labels=15)
 if use_gpu:
     model.cuda()
 
@@ -169,7 +172,6 @@ optimizer_grouped_parameters = [
 ]
 optimizer = BertAdam(optimizer_grouped_parameters, lr=2e-5, warmup=.1)
 
-
 # Function to calculate the accuracy of our predictions vs labels
 def flat_accuracy(preds, labels):
     pred_flat = np.argmax(preds, axis=1).flatten()
@@ -181,13 +183,12 @@ def flat_accuracy(preds, labels):
 train_loss_set = []
 
 # Number of training epochs (authors recommend between 2 and 4)
-epochs = 4
+epochs = args.epochs
 print("Starting training")
 # trange is a tqdm wrapper around the normal python range
 for epoch in trange(epochs, desc="Epoch"):
 
     # Training
-
     # Set our model to training mode (as opposed to evaluation mode)
     model.train()
 
@@ -227,7 +228,6 @@ for epoch in trange(epochs, desc="Epoch"):
     print("Train loss: {}".format(tr_loss / nb_tr_steps))
 
     # Validation
-
     # Put model in evaluation mode to evaluate loss on the validation set
     model.eval()
 
@@ -255,10 +255,10 @@ for epoch in trange(epochs, desc="Epoch"):
         label_ids = b_labels.to('cpu').numpy()
 
         tmp_eval_accuracy = flat_accuracy(logits, label_ids)
-
         eval_accuracy += tmp_eval_accuracy
         nb_eval_steps += 1
 
     print("Validation Accuracy: {}".format(eval_accuracy / nb_eval_steps))
 
+# save model for predict
 torch.save(model, args.output_dir)
