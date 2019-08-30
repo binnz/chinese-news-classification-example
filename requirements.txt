@@ -1,0 +1,9 @@
+Keras==2.2.5
+matplotlib==3.0.3
+numpy==1.17.1
+pandas==0.25.1
+pytorch-pretrained-bert==0.6.2
+sklearn==0.0
+tensorflow==1.14.0
+torch==1.2.0
+tqdm==4.35.0
