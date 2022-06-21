@@ -1,6 +1,6 @@
 Keras==2.2.5
 matplotlib==3.0.3
-numpy==1.17.1
+numpy==1.22.0
 pandas==0.25.1
 pytorch-pretrained-bert==0.6.2
 sklearn==0.0
